@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <set>
 
 
 using namespace std;
@@ -56,6 +57,7 @@ public:
 	int getFrame1() const {return frame1;}
 	const map<int, map<int, float> >& getRadios() const {return radios;}
 	const map<int, string>& getLabels() const {return labels;}
+	const map<int, vector<int>>& getTrack_id() const{return track_id;}		
 	bool error;
   void showRadios();
 
@@ -66,7 +68,9 @@ protected:
   string imagesPath;
 	int numFrames;
   int init_min_dist;
+    set<int> allQrs;	
     vector<int> allTracks;
+    vector<cv::Point2f> vector_kps;
     map<int, vector<cv::Point2f> > kps;
 	map<int, vector<int> > track_ids;
 	map<int, string> img_names;

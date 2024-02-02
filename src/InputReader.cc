@@ -28,18 +28,18 @@ typedef pair<int, int> Match;
 vector<string> getCols(string str) {
 	vector<string> cols;
 	std::size_t a, b;
-	a = str.find(',', 0);
-	cols.push_back(str.substr(0, a));
-	bool frenar = false;
-	while (!frenar) {
-		b = str.find(',', a + 1);
-		if (b == std::string::npos)
-			frenar = true;
-		cols.push_back(str.substr(a + 1, b - a - 1));
+	a = str.find(',', 0);					//Buscar y guarda la posicion de la primera coma
+	cols.push_back(str.substr(0, a)); 			//Agrega una subcadena a cols de la posicion 0 hasta la posicion de la primera coma almacenada en "a"
+	bool frenar = false;			
+	while (!frenar) {			
+		b = str.find(',', a + 1);	
+		if (b == std::string::npos)			//npos es el mayor valor posible de la subcadena
+			frenar = true;			
+		cols.push_back(str.substr(a + 1, b - a - 1));	//agrega la nueva subcadena encontrada en las nueva posicion
 		//str = str.substr(b);
-		a = b;
+		a = b;						//establece la variable "b" como nuevo valor de la variable "a" 
 	}
-	return cols;
+	return cols;						//retorna vector<string>
 }
 
 std::vector<std::string> split(std::string s, std::string delimiter) {
@@ -122,53 +122,77 @@ InputReader::InputReader(InputParser* input){
 	if(input->initFlag) init_min_dist = stoi(input->getCmdOption(imd));
 }
 
+int idTrack_toQr (int id_track){
+
+	int number_qr = (id_track-1000-(id_track % 4))/4;
+	
+	return number_qr;
+}
+
+int idTrack_toCorner (int id_track){
+
+	return id_track % 4;
+}
+
+int qr_toidTrack(int number_qr, int corner){
+	map<string, int> c_value;
+	
+	c_value["left_top"] = 0;
+	c_value["left_bottom"] = 1;
+	c_value["right_top"] = 2;
+	c_value["right_bottom"] = 3;
+
+	int track_id = 1000 + number_qr*4 + c_value[corner];
+	
+	return track_id;
+}
+
 void InputReader::parseQRFile(string strQRPath){
 	std::string str;
 	ifstream QRFile;
 	QRFile.open(strQRPath);
-	getline(QRFile, str); //se deshace del encabezado
-	vector<string> headers = getCols(str);
-	numFrames = (headers.size() - 3)/2;
+	getline(QRFile, str); 								//se deshace del encabezado. track_id, frame, qr, esquina, x, y
+	vector<string> headers = getCols(str); 						//suponiendo que saque track_id ["frame", "qr", "esquina", "x", "y"]
+	//numFrames = (headers.size() - 3)/2;
 	while (getline(QRFile, str)) {
-		vector<string> cols = getCols(str);
-		int qr_id = atoi(cols[0].c_str());
-		int esquina = atoi(cols[1].c_str());
-		int id_track = 1000 + 4*qr_id + esquina;
-		labels[id_track] = cols[2];
-		for (int i = 0; i < cols.size(); i++) {
-			if(i<3) continue;
-			if(cols[i]=="NULL") continue;
-			vector<string> split_header = split(headers[i],"_");
-			int frame = stoi(split_header[0]);
-			string coord = split_header[1];
-			img_names[i] = to_string(frame)+".jpg";
-			if(coord=="x"){
-				cv::Point2f kp = cv::Point2f(
-							atof(cols[i].c_str()),
-							atof(cols[i+1].c_str()));
-				kps[frame].push_back(kp);
-				radios[frame][id_track] = -1;
-				track_ids[frame].push_back(id_track);
-				//cout<<"track id: "<<id_track<<", frame: "<<frame<<", kp: "<<kp<<endl;
-			}else continue;
-		}
-		allTracks.push_back(id_track);
+		vector<string> cols = getCols(str);					//["0", "121", "left_top", "117", "266"] --> 5 elementos [0,4]
+		int qr_id = atoi(cols[1].c_str());		
+		string esquina = atoi(cols[2].c_str());					//Aca tendria que reconocer que left_top es 0. Con un map
+		int id_track = qr_toidTrack(qr_id, esquina);
+		int frame = atoi(cols[0].c_str());
+		labels[id_track] = "esquina_qr";					//Aca siempre se va a guardar "esquina_qr"
+	
+		cv::Point2f kp = cv::Point2f(
+					atof(cols[2].c_str()),
+					atof(cols[3].c_str()));
+	
+		kps[frame].push_back(kp);
+		radios[frame][id_track] = -1;
+		track_ids[frame].push_back(id_track);
+
+		auto exist = std::find(allTracks.begin(), allTracks.end(), id_track);
+		if (exist == allTracks.end()) allTracks.push_back(id_track);
+		
+		allQrs.insert(qr_id);
+		
+		
 	}
 }
+
 
 void InputReader::parseDetectionsFile(string detectionMatchesPath){
 	std::string str;
 	ifstream matchesFile;
-	matchesFile.open(detectionMatchesPath);
+	matchesFile.open(detectionMatchesPath);								//abre archivo pasado por parametro. guarda en matchesFile
 	track_cal_1 = -1;
 	track_cal_2 = -1;
 	track_val_1 = 0;
 	track_val_2 = 0;
 	error = false;
-	int numcolsperframe = 4;
-	getline(matchesFile, str); //se deshace del encabezado
+	int numcolsperframe = 4;						
+	getline(matchesFile, str);									//obtiene linea(fila) del csv donde hay palabras separadas por coma y guarda en variable "str". Se deshace del encabezado
 	while (getline(matchesFile, str)) {
-		vector<string> cols = getCols(str);
+		vector<string> cols = getCols(str);							//vector<string> contiene todas las palabras que estaban separadas por comas en el csv ordenados en las posiciones del vector
 		if (cols.size() % numcolsperframe != 3) {
 			cout << "La cantidad de columnas de " << detectionMatchesPath
 					<< " no coincide con la cantidad de frames indicada.";
@@ -180,26 +204,26 @@ void InputReader::parseDetectionsFile(string detectionMatchesPath){
 					<< endl;
 			continue;
 		} else {
-			numFrames = (cols.size() - 3) / numcolsperframe;
-			int id_track = atoi(cols[0].c_str());
-			labels[id_track] = cols[1];
-			if (cols[1] == "cal_1") track_cal_1 = id_track;
+			numFrames = (cols.size() - 3) / numcolsperframe;				//no contar track_id, label, nro_kf
+			int id_track = atoi(cols[0].c_str());						//Guarda track_id 	
+			labels[id_track] = cols[1];							//Guarda label de track_id. Siempre es "baya"
+			if (cols[1] == "cal_1") track_cal_1 = id_track;					
 			else if (cols[1] == "cal_2") track_cal_2 = id_track;
 			if (cols[1] == "val_1") track_val_1 = id_track;
 			else if (cols[1] == "val_2") track_val_2 = id_track;
 			for (int i = 0; i < numFrames; i++) {
-				if (cols[i * numcolsperframe + 3] != "NULL") {
-					img_names[i] = cols[i * numcolsperframe + 3];
+				if (cols[i * numcolsperframe + 3] != "NULL") {				//El (+ 3) es para evitar las primeras 3 columnas (track_id, label, nro_kf). 
+					img_names[i] = cols[i * numcolsperframe + 3];			//Guarda el nombre de la imagen ubicado cada 3 posiciones
 					cv::Point2f kp = cv::Point2f(
-							atof(cols[i * numcolsperframe + 4].c_str()),
-							atof(cols[i * numcolsperframe + 5].c_str()));
-					kps[i].push_back(kp);
+							atof(cols[i * numcolsperframe + 4].c_str()),	//Posicion en x del centro de la baya. Cada 4 posiciones
+							atof(cols[i * numcolsperframe + 5].c_str()));	//Posicion en y del centro de la baya. Cada 5 posiciones
+					kps[i].push_back(kp);						//KeyPoints (kps). agrega par ordenado en la posicion i de kps
 					radios[i][id_track] =
-							atof(cols[i * numcolsperframe + 6].c_str());
-					track_ids[i].push_back(id_track);
+							atof(cols[i * numcolsperframe + 6].c_str());	//agrega en radios en la posicion i el radio de la baya id_track. Ubicado cada 6 posiciones
+					track_ids[i].push_back(id_track);				//agrega en track_ids el id_track en la posicion i
 				}
 			}
-			allTracks.push_back(id_track);
+			allTracks.push_back(id_track);							//agrega id_track en la posicion i de allTracks
 		}
 	}
 }
@@ -227,7 +251,7 @@ cv::Mat InputReader::GetK() {
 	K.at<float>(0, 2) = cx;
 	K.at<float>(1, 2) = cy;
 
-	return K;
+	return K; //matriz de calibración
 }
 
 vector<int> InputReader::GetImageBounds(cv::Mat K) {
